@@ -1,0 +1,8 @@
+[package]
+name = "reburn"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.0.29", features = ["derive"] }
+notify = "5.0.0"

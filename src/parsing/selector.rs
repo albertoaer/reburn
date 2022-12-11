@@ -154,5 +154,11 @@ mod tests {
     assert_eq!(parse_selector("{ab/cd/*,./**}"), Ok(
       make![op make![rt w!("ab"), w!("cd"), WildCard], make![rt w!("."), WildCardDepth]]
     ));
+    assert_eq!(parse_selector("a/b{c,d}"), Ok(
+      make![rt w!("a"), make![cc w!("b"), make![op w!("c"), w!("d")]]]
+    ));
+    assert_eq!(parse_selector("a/b/{c,d}"), Ok(
+      make![rt w!("a"), w!("b"), make![op w!("c"), w!("d")]]
+    ));
   }
 }

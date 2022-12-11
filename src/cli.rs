@@ -15,6 +15,10 @@ pub struct Cli {
 }
 
 impl Cli {
+	pub fn new() -> Self {
+		Self::parse()
+	}
+
 	pub fn command(&self) -> Result<Vec<String>, String> {
 		match (&self.cmd, &self.script) {
 			(Some(_), Some(_)) | (None, None) => Err("Expected either a script or a command".to_string()),

@@ -6,3 +6,6 @@ edition = "2021"
 [dependencies]
 clap = { version = "4.0.29", features = ["derive"] }
 notify = "5.0.0"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.6", features = ["psapi", "shellapi", "tlhelp32"] }

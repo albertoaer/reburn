@@ -12,6 +12,8 @@ pub enum Selector {
   WildCard,
   /// **
   WildCardDepth,
+  /// !
+  Not,
   Word(String)
 }
 
@@ -86,6 +88,7 @@ impl Parser {
     Ok(match tk {
         Token::WildCard => self.push_to_concat(Selector::WildCard),
         Token::WildCardDepth => self.push_to_concat(Selector::WildCardDepth),
+        Token::Not => self.push_to_concat(Selector::Not),
         Token::Word(n) => self.push_to_concat(Selector::Word(n.clone())),
         Token::Open => self.push_to_stack(),
         Token::Close => self.pop_from_stack()?,
@@ -159,6 +162,9 @@ mod tests {
     ));
     assert_eq!(parse_selector("a/b/{c,d}"), Ok(
       make![rt w!("a"), w!("b"), make![op w!("c"), w!("d")]]
+    ));
+    assert_eq!(parse_selector("a/!b/!{c,d}!"), Ok(
+      make![rt w!("a"), make![cc Not, w!("b")], make![cc Not, make![op w!("c"), w!("d")], Not]]
     ));
   }
 }

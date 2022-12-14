@@ -14,7 +14,9 @@ pub(super) enum Token {
   /// ,
   Comma,
   /// /
-  Slash
+  Slash,
+  /// !
+  Not
 }
 
 fn is_word(c: char) -> bool {
@@ -33,6 +35,7 @@ impl Token {
       (',', _) => (tk.clone(), Some(Self::Comma)),
       ('*', Some(Self::WildCard)) => (None, Some(Self::WildCardDepth)),
       ('*', _) => (tk.clone(), Some(Self::WildCard)),
+      ('!', _) => (tk.clone(), Some(Self::Not)),
       (_, Some(Self::Word(s))) if is_word(c) => (None, Some(Self::Word(format!("{}{}", s, c)))),
       (_, _) if is_word(c)=> (tk.clone(), Some(Self::Word(c.to_string()))),
       (_, _) => (None, None)
@@ -82,11 +85,14 @@ mod tests {
     assert_tk!("***", WildCardDepth, WildCard);
     assert_tk!("./.rs", Word(".".to_string()), Slash, Word(".rs".to_string()));
     assert_tk!("../..", Word("..".to_string()), Slash, Word("..".to_string()));
-    assert_tk!("..test{.rs,.go}", Word("..test".to_string()), Open, Word(".rs".to_string()), Comma, Word(".go".to_string()), Close);
+    assert_tk!("..test{.rs,.go}",
+      Word("..test".to_string()), Open, Word(".rs".to_string()), Comma, Word(".go".to_string()), Close);
     assert_tk!("", None);
     assert_tk!("/**/something/file.*",
       Slash, WildCardDepth, Slash, Word("something".to_string()), Slash, Word("file.".to_string()), WildCard);
     assert_tk!("{Cargo.toml,*.rs}/",
-      Open, Word("Cargo.toml".to_string()), Comma, WildCard, Word(".rs".to_string()), Close, Slash)
+      Open, Word("Cargo.toml".to_string()), Comma, WildCard, Word(".rs".to_string()), Close, Slash);
+    assert_tk!("!test!{c,!d}",
+      Not, Word("test".to_string()), Not, Open, Word("c".to_string()), Comma, Not, Word("d".to_string()), Close);
   }
 }

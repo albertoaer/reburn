@@ -5,10 +5,29 @@ fn reduce_routes<F: Fn(Route, Route) -> Result<Route, &'static str>>(routes: Vec
 -> Result<Vec<Route>, &'static str> {
   routes.into_iter().map(|i| Ok(i)).reduce(|a, b| match (a, b) {
     (a @ Err(_), _) | (_, a @ Err(_)) => a,
-    (Ok(ref a), Ok(ref b)) => a.into_iter().map(
-      |a| b.into_iter().map(|b| combine(a.clone(), b.clone()))
-    ).flatten().collect()
+    (Ok(ref a), Ok(ref b)) => a.into_iter()
+      .map( |a| b.into_iter().map(|b| combine(a.clone(), b.clone())) ).flatten().collect()
   }).unwrap()
+}
+
+fn concat_names(a: &[NameMatch], b: &[NameMatch]) -> Result<RouteItem, &'static str> {
+  use NameMatch::*;
+
+  let name_of = |items: &[&[NameMatch]]| {
+    let mut v = Vec::new();
+    items.iter().for_each(|item| v.extend(item.to_vec()));
+    RouteItem::Name(v)
+  };
+
+  Ok(match (a, b) {
+    ([init @ .., NegatedLiteral(left)], [Literal(right), tail @ ..]) =>
+      name_of(&[init, &[NegatedLiteral(left.clone() + right)], tail]),
+    ([init @ .., Literal(left)], [Literal(right), tail @ ..]) =>
+      name_of(&[init, &[Literal(left.clone() + right)], tail]),
+    ([init @ .., NegatedLiteral(left)], [NegatedLiteral(right), tail @ ..]) =>
+      name_of(&[init, &[NegatedLiteral(left.clone() + right)], tail]),
+    (a, b) => name_of(&[a, b])
+  })
 }
 
 fn route_combine(a: &[RouteItem], b: &[RouteItem]) -> Result<Route, &'static str> {
@@ -17,15 +36,10 @@ fn route_combine(a: &[RouteItem], b: &[RouteItem]) -> Result<Route, &'static str
   match (a, b) {
     ([.., AnySubRoute], _) | (_, [AnySubRoute, ..]) => Err("Trying to concat with **"),
     (_, []) | ([], _) => Err("Empty concat"),
-    ([init @ .., Name(a_i)], [Name(b_i), tail @ ..]) => Ok({
+    ([init @ .., Name(left)], [Name(right), tail @ ..]) => Ok({
       let mut v = Vec::new();
       v.extend(init.iter().map(|x| x.clone()));
-      v.push({
-        let mut aux = Vec::new();
-        aux.extend(a_i.clone());
-        aux.extend(b_i.clone());
-        Name(aux)
-      });
+      v.push(concat_names(&left[..], &right[..])?);
       v.extend(tail.iter().map(|x| x.clone()));
       v
     })
@@ -68,5 +82,6 @@ pub(super) fn recursive_join(selector: &Selector) -> Result<Vec<Route>, &'static
     WildCard => vec![vec![Name(vec![Any])]],
     WildCardDepth => vec![vec![AnySubRoute]],
     Word(n) => vec![vec![Name(vec![Literal(n.clone())])]],
+    Not => vec![vec![Name(vec![NegatedLiteral(String::new())])]],
   })
 }

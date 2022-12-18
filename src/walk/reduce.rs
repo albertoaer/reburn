@@ -10,26 +10,6 @@ fn reduce_routes<F: Fn(Route, Route) -> Result<Route, &'static str>>(routes: Vec
   }).unwrap()
 }
 
-fn concat_names(a: &[NameMatch], b: &[NameMatch]) -> Result<RouteItem, &'static str> {
-  use NameMatch::*;
-
-  let name_of = |items: &[&[NameMatch]]| {
-    let mut v = Vec::new();
-    items.iter().for_each(|item| v.extend(item.to_vec()));
-    RouteItem::Name(v)
-  };
-
-  Ok(match (a, b) {
-    ([init @ .., NegatedLiteral(left)], [Literal(right), tail @ ..]) =>
-      name_of(&[init, &[NegatedLiteral(left.clone() + right)], tail]),
-    ([init @ .., Literal(left)], [Literal(right), tail @ ..]) =>
-      name_of(&[init, &[Literal(left.clone() + right)], tail]),
-    ([init @ .., NegatedLiteral(left)], [NegatedLiteral(right), tail @ ..]) =>
-      name_of(&[init, &[NegatedLiteral(left.clone() + right)], tail]),
-    (a, b) => name_of(&[a, b])
-  })
-}
-
 fn route_combine(a: &[RouteItem], b: &[RouteItem]) -> Result<Route, &'static str> {
   use RouteItem::*;
 
@@ -39,49 +19,54 @@ fn route_combine(a: &[RouteItem], b: &[RouteItem]) -> Result<Route, &'static str
     ([init @ .., Name(left)], [Name(right), tail @ ..]) => Ok({
       let mut v = Vec::new();
       v.extend(init.iter().map(|x| x.clone()));
-      v.push(concat_names(&left[..], &right[..])?);
+      v.push(Name(
+        vec![left.clone(), right.clone()].into_iter().flatten().collect::<Vec<_>>()
+      ));
       v.extend(tail.iter().map(|x| x.clone()));
       v
     })
   }
 }
 
+#[inline]
+fn recursive_join_many(v: &Vec<Selector>) -> Result<Vec<Vec<Route>>, &'static str> {
+  v.into_iter().map(recursive_join).collect::<Result<Vec<_>, _>>()
+}
+
+#[inline]
+fn negate(v: Vec<RouteItem>) -> Result<Route, &'static str> {
+  use RouteItem::*;
+
+  if v.len() == 1 {
+    match &v[0] {
+      RouteItem::Name(n) if n.len() == 1 => return Ok(vec![Name(vec![n[0].clone().negate()?])]),
+      _ => ()
+    }
+  }
+  return Err("Only literals can be negated")
+}
+
 pub(super) fn recursive_join(selector: &Selector) -> Result<Vec<Route>, &'static str> {
+  use Selector::*;
   use RouteItem::*;
   use NameMatch::*;
-  use Selector::*;
 
   Ok(match selector {
-    Route(e) | Option(e) | Concat(e) if e.is_empty() => return Err("Empty group"),
-    Route(v) => {
-      let mut ret = Vec::new();
-      for s in v {
-        ret.push(recursive_join(s)?);
-      }
-      reduce_routes(ret, |a, b| {
-        let mut v = Vec::new();
-        v.extend(a.iter().map(|x| x.clone()));
-        v.extend(b.iter().map(|x| x.clone()));
-        Ok(v)
-      })?
-    }
-    Option(v) => {
-      let mut ret = Vec::new();
-      for s in v {
-        ret.append(&mut recursive_join(s)?);
-      }
-      ret
-    }
-    Concat(v) => {
-      let mut ret = Vec::new();
-      for s in v {
-        ret.push(recursive_join(s)?);
-      }
-      reduce_routes(ret, |a, b| route_combine(&a[..], &b[..]))?
-    }
+    Option(v) | Route(v) | Concat(v) if v.is_empty() => return Err("Empty group"),
+    Option(v) => recursive_join_many(v)?.into_iter().flatten().collect(),
+    Route(v) => reduce_routes(recursive_join_many(v)?, |a, b| {
+      let mut v = Vec::new();
+      v.extend(a.iter().map(|x| x.clone()));
+      v.extend(b.iter().map(|x| x.clone()));
+      Ok(v)
+    })?,
+    Concat(v) => reduce_routes(recursive_join_many(v)?,
+      |a, b| route_combine(&a[..], &b[..])
+    )?,
+    Not(v) => recursive_join(v)?.into_iter()
+      .map(negate).collect::<Result<Vec<_>, _>>()?,
     WildCard => vec![vec![Name(vec![Any])]],
     WildCardDepth => vec![vec![AnySubRoute]],
     Word(n) => vec![vec![Name(vec![Literal(n.clone())])]],
-    Not => vec![vec![Name(vec![NegatedLiteral(String::new())])]],
   })
 }

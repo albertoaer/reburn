@@ -5,6 +5,16 @@ pub(super) enum NameMatch {
   Any
 }
 
+impl NameMatch {
+  pub(super) fn negate(self) -> Result<NameMatch, &'static str> {
+    match self {
+      Self::Literal(n) => Ok(Self::NegatedLiteral(n)),
+      Self::NegatedLiteral(n) => Ok(Self::Literal(n)),
+      Self::Any => Err("Can not negate any")
+    }
+  }
+}
+
 #[derive(Debug, Clone)]
 pub(super) enum RouteItem {
   Name(Vec<NameMatch>),

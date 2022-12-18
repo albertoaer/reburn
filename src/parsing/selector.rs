@@ -1,11 +1,13 @@
+use std::rc::Rc;
+
 use super::selector_tokens::Token;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Selector {
-  /// a/b/c
-  Route(Vec<Selector>),
   /// {a,b}
   Option(Vec<Selector>),
+  /// a/b/c
+  Route(Vec<Selector>),
   /// abc
   Concat(Vec<Selector>),
   /// *
@@ -13,25 +15,36 @@ pub enum Selector {
   /// **
   WildCardDepth,
   /// !
-  Not,
+  Not(Rc<Selector>),
   Word(String)
 }
 
-struct Parser {
-  stack: Vec<(Vec<Selector>, Vec<Selector>, Vec<Selector>)>,
-  current: (Vec<Selector>, Vec<Selector>, Vec<Selector>)
+#[derive(Debug, Clone)]
+struct ParserLevel {
+  option: Vec<Selector>,
+  route: Vec<Selector>,
+  concat: Vec<Selector>,
+  negate_next: bool
 }
 
-impl Parser {
+impl ParserLevel {
   fn new() -> Self {
-    Parser {
-      stack: Vec::new(),
-      current: (Vec::new(), Vec::new(), Vec::new())
+    ParserLevel {
+      option: Vec::new(), route: Vec::new(), concat: Vec::new(), negate_next: false
     }
   }
 
+  fn negate(&mut self) {
+    self.negate_next = true;
+  }
+
   fn push_to_concat(&mut self, atom: Selector) {
-    self.current.2.push(atom)
+    self.concat.push(if self.negate_next {
+      self.negate_next = false;
+      Selector::Not(Rc::new(atom))
+    } else {
+      atom
+    });
   }
 
   fn base_push<F: FnOnce(&[Selector]) -> Selector>(
@@ -48,36 +61,53 @@ impl Parser {
   }
 
   fn push_to_route(&mut self, force: bool) -> Result<(), &'static str> {
-    Self::base_push(&mut self.current.2, &mut self.current.1,
+    if self.negate_next {
+      return Err("Unused negation mark")
+    }
+    Self::base_push(&mut self.concat, &mut self.route,
       force, |o| Selector::Concat(o.to_vec())
     ).ok_or("Nothing before the slash")
   }
 
   fn push_to_option(&mut self, force: bool) -> Result<(), &'static str> {
     self.push_to_route(false)?;
-    Self::base_push(&mut self.current.1, &mut self.current.0,
+    Self::base_push(&mut self.route, &mut self.option,
       force, |o| Selector::Route(o.to_vec())
     ).ok_or("Nothing before the comma")
   }
-
-  fn push_to_stack(&mut self) {
-    self.stack.push(self.current.clone());
-    self.current = (Vec::new(), Vec::new(), Vec::new());
-  }
-
+  
   fn collect(&mut self) -> Result<Selector, &'static str> {
     self.push_to_option(false)?;
-    Ok(match &self.current.0[..] {
+    Ok(match &self.option[..] {
       [a] => a.clone(),
       [] => return Err("Empty"),
       o => Selector::Option(o.to_vec())
     })
   }
+}
+
+struct Parser {
+  stack: Vec<ParserLevel>,
+  current: ParserLevel
+}
+
+impl Parser {
+  fn new() -> Self {
+    Parser {
+      stack: Vec::new(),
+      current: ParserLevel::new()
+    }
+  }
+
+  fn push_to_stack(&mut self) {
+    self.stack.push(self.current.clone());
+    self.current = ParserLevel::new();
+  }
 
   fn pop_from_stack(&mut self) -> Result<(), &'static str> {
     if let Some(mut top) = self.stack.pop() {
-      self.push_to_option(false)?;
-      top.2.push(self.collect()?);
+      self.current.push_to_option(false)?;
+      top.push_to_concat(self.current.collect()?);
       self.current = top;
       return Ok(())
     }
@@ -86,14 +116,14 @@ impl Parser {
 
   fn append_token(&mut self, tk: Token) -> Result<(), &'static str> {
     Ok(match tk {
-        Token::WildCard => self.push_to_concat(Selector::WildCard),
-        Token::WildCardDepth => self.push_to_concat(Selector::WildCardDepth),
-        Token::Not => self.push_to_concat(Selector::Not),
-        Token::Word(n) => self.push_to_concat(Selector::Word(n.clone())),
+        Token::WildCard => self.current.push_to_concat(Selector::WildCard),
+        Token::WildCardDepth => self.current.push_to_concat(Selector::WildCardDepth),
+        Token::Not => self.current.negate(),
+        Token::Word(n) => self.current.push_to_concat(Selector::Word(n.clone())),
         Token::Open => self.push_to_stack(),
         Token::Close => self.pop_from_stack()?,
-        Token::Comma => self.push_to_option(true)?,
-        Token::Slash => self.push_to_route(true)?,
+        Token::Comma => self.current.push_to_option(true)?,
+        Token::Slash => self.current.push_to_route(true)?,
     })
   }
 
@@ -102,7 +132,7 @@ impl Parser {
       return Err("Unclosed group");
     }
     // if stack is empty we are in the first level where no group is open
-    self.collect()
+    self.current.collect()
   }
 }
 
@@ -122,6 +152,11 @@ mod tests {
   macro_rules! w {
     ($e:expr) => {
       Word($e.to_string())
+    };
+  }
+  macro_rules! n {
+    ($e:expr) => {
+      Not(Rc::new($e))
     };
   }
   macro_rules! make {
@@ -163,8 +198,10 @@ mod tests {
     assert_eq!(parse_selector("a/b/{c,d}"), Ok(
       make![rt w!("a"), w!("b"), make![op w!("c"), w!("d")]]
     ));
-    assert_eq!(parse_selector("a/!b/!{c,d}!"), Ok(
-      make![rt w!("a"), make![cc Not, w!("b")], make![cc Not, make![op w!("c"), w!("d")], Not]]
+    assert!(matches!(parse_selector("a/!b/!{c,d}!"), Err(_)));
+    assert_eq!(parse_selector("a/!b/!{c,d}"), Ok(
+      make![rt w!("a"), n!(w!("b")), n!(make![op w!("c"), w!("d")])]
     ));
+    assert_eq!(parse_selector("!{a,*c}"), Ok(n!(make![op w!("a"), make![cc WildCard, w!("c")]])));
   }
 }

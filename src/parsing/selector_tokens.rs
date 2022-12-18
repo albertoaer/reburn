@@ -19,26 +19,18 @@ pub(super) enum Token {
   Not
 }
 
-fn is_word(c: char) -> bool {
-  match c {
-    '*' | '{' | '}' | ',' | '/' => false,
-    _ => true
-  }
-}
-
 impl Token {
-  fn next(c: char, tk: &Option<Token>) -> (Option<Token>, Option<Token>) {
+  fn next(c: char, tk: &Option<Token>) -> (Option<Token>, Token) {
     match (c, tk) {
-      ('/', _) => (tk.clone(), Some(Self::Slash)),
-      ('{', _) => (tk.clone(), Some(Self::Open)),
-      ('}', _) => (tk.clone(), Some(Self::Close)),
-      (',', _) => (tk.clone(), Some(Self::Comma)),
-      ('*', Some(Self::WildCard)) => (None, Some(Self::WildCardDepth)),
-      ('*', _) => (tk.clone(), Some(Self::WildCard)),
-      ('!', _) => (tk.clone(), Some(Self::Not)),
-      (_, Some(Self::Word(s))) if is_word(c) => (None, Some(Self::Word(format!("{}{}", s, c)))),
-      (_, _) if is_word(c)=> (tk.clone(), Some(Self::Word(c.to_string()))),
-      (_, _) => (None, None)
+      ('/', _) => (tk.clone(), Self::Slash),
+      ('{', _) => (tk.clone(), Self::Open),
+      ('}', _) => (tk.clone(), Self::Close),
+      (',', _) => (tk.clone(), Self::Comma),
+      ('*', Some(Self::WildCard)) => (None, Self::WildCardDepth),
+      ('*', _) => (tk.clone(), Self::WildCard),
+      ('!', _) => (tk.clone(), Self::Not),
+      (_, Some(Self::Word(s))) => (None, Self::Word(format!("{}{}", s, c))),
+      (_, _) => (tk.clone(), Self::Word(c.to_string()))
     }
   }
 
@@ -50,10 +42,7 @@ impl Token {
       if let Some(push) = push {
         v.push(push)
       }
-      match next {
-        Some(next) => tk = Some(next),
-        None => return None
-      }
+      tk = Some(next)
     }
     if let Some(tk) = tk {
       v.push(tk);

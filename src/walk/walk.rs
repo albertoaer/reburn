@@ -23,9 +23,11 @@ impl Walker {
     match remain {
       [RouteItem::AnySubRoute] => self.send(path, Recursive),
       [n, last @ ..] => {
-        files_in(&path).filter(|p| n.matches(p.file_name().to_str().unwrap()))
-        .for_each(|f| self.match_route(last, f.path()));
+        let files: Vec<_> = files_in(&path)
+          .filter(|p| n.matches(p.file_name().to_str().unwrap())).collect();
+        files.iter().for_each(|f| self.match_route(last, f.path()));
         if n.omittable() {
+          files.iter().for_each(|f| self.match_route(remain, f.path()));
           self.match_route(last, path);
         }
       }

@@ -1,10 +1,8 @@
-use std::{path::{PathBuf, Path}, sync::mpsc::{channel, Sender}, fs::{self, DirEntry}};
+use std::{path::{PathBuf, Path}, thread, sync::{mpsc::{channel, Sender}, Arc}, fs::{self, DirEntry}};
 use notify::RecursiveMode::{self, *};
 use crate::parsing::selector::Selector;
 use super::reduce::*;
 use super::common::*;
-
-struct Walker(Sender<(PathBuf, RecursiveMode)>);
 
 fn files_in<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> {
   fs::read_dir(path)
@@ -13,9 +11,16 @@ fn files_in<P: AsRef<Path>>(path: &P) -> impl Iterator<Item = DirEntry> {
   .into_iter().filter_map(move |f| f.and_then(|e| Ok(e)).ok())
 }
 
+struct Walker(Sender<(PathBuf, RecursiveMode)>);
+
 impl Walker {
   fn send(&self, path: PathBuf, mode: RecursiveMode) {
     self.0.send((path, mode)).ok();
+  }
+
+  fn async_match_route(&self, remain: Arc<[RouteItem]>, path: PathBuf) {
+    let sender = self.0.clone();
+    thread::spawn(move || Walker(sender).match_route(&remain, path));
   }
 
   fn match_route(&self, remain: &[RouteItem], path: PathBuf) {
@@ -25,10 +30,10 @@ impl Walker {
       [n, last @ ..] => {
         let files: Vec<_> = files_in(&path)
           .filter(|p| n.matches(p.file_name().to_str().unwrap())).collect();
-        files.iter().for_each(|f| self.match_route(last, f.path()));
+        files.iter().for_each(|f| self.async_match_route(last.into(), f.path()));
         if n.omittable() {
-          files.iter().for_each(|f| self.match_route(remain, f.path()));
-          self.match_route(last, path);
+          files.iter().for_each(|f| self.async_match_route(remain.into(), f.path()));
+          self.async_match_route(last.into(), path);
         }
       }
       [] => self.send(path, NonRecursive)

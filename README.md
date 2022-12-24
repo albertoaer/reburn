@@ -2,7 +2,7 @@
 
 Automatic script restarter on file change detection
 
-## How does it work?
+## How to use it?
 
 ### Terminal invocation
 Example for cargo project, will reload when any file under `src` folder changes

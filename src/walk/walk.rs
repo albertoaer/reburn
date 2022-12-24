@@ -24,16 +24,22 @@ impl Walker {
   }
 
   fn match_route(&self, remain: &[RouteItem], path: PathBuf) {
-    //TODO: Include Name(".") and Name("..")
+    use NameMatch::*;
+
     match remain {
       [RouteItem::AnySubRoute] => self.send(path, Recursive),
+      [n, last @ ..] if n.is_name(&[Literal(".".to_string())]) =>
+        self.match_route(last.into(), path),
+      [n, last @ ..] if n.is_name(&[Literal("..".to_string())]) => if let Some(n) = path.parent() {
+        self.match_route(last.into(), n.to_path_buf());
+      }
       [n, last @ ..] => {
         let files: Vec<_> = files_in(&path)
           .filter(|p| n.matches(p.file_name().to_str().unwrap())).collect();
         files.iter().for_each(|f| self.async_match_route(last.into(), f.path()));
         if n.omittable() {
           files.iter().for_each(|f| self.async_match_route(remain.into(), f.path()));
-          self.async_match_route(last.into(), path);
+          self.match_route(last.into(), path);
         }
       }
       [] => self.send(path, NonRecursive)

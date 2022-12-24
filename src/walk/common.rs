@@ -1,4 +1,4 @@
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub(super) enum NameMatch {
   Literal(String),
   NegatedLiteral(String),
@@ -56,6 +56,13 @@ impl RouteItem {
 
   pub(super) fn omittable(&self) -> bool {
     matches!(self, Self::AnySubRoute)
+  }
+
+  pub(super) fn is_name(&self, matcher: &[NameMatch]) -> bool {
+    if let Self::Name(name) = self {
+      return &name[..] == matcher
+    }
+    false
   }
 }
 
